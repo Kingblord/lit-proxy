@@ -1,55 +1,43 @@
 export default async function handler(req, res) {
-  // === IMPROVED CORS HEADERS ===
-  res.setHeader('Access-Control-Allow-Origin', '*');        // Allow all domains
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+        // 1. SET CORS HEADERS (The Fix!)
+            // Replace the '*' with your actual hosted website URL (e.g., https://lit.co)
+                res.setHeader('Access-Control-Allow-Origin', 'https://cloutiva-app.is-best.net');
+                    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'
+                        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+                            // Handle the browser "Preflight" check
+                                if (req.method === 'OPTIONS') {
+                                        return res.status(200).end();
+                                            }
 
-  const { target } = req.query;
+                                                const { service } = req.query; // 'hero' or 'smm'
 
-  if (!target) {
-    return res.status(400).json({ error: "Missing target parameter" });
-  }
+                                                    try {
+                                                            if (service === 'hero') {
+                                                                        const HERO_KEY = process.env.HERO_SMS_KEY;
+                                                                                    const queryParams = new URLSearchParams({ ...req.query, api_key: HERO_KEY });
+                                                                                                delete queryParams.delete('service'); // Remove 'service' from actual API call
 
-  try {
-    let fetchUrl = target;
+                                                                                                            const response = await fetch(`https://hero-sms.com/stubs/handler_api.php?${queryParams}`);
+                                                                                                                        const data = await response.text();
+                                                                                                                                    return res.status(200).send(data);
+                                                                                                                                            }
 
-    const fetchOptions = {
-      method: req.method,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    };
+                                                                                                                                                    if (service === 'smm') {
+                                                                                                                                                                const SMM_KEY = process.env.SMM_WIZ_KEY;
+                                                                                                                                                                            const response = await fetch('https://smmwiz.com/api/v2', {
+                                                                                                                                                                                            method: 'POST',
+                                                                                                                                                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                                                                                                                                                                            body: JSON.stringify({ ...req.body, key: SMM_KEY })
+                                                                                                                                                                                                                                        });
+                                                                                                                                                                                                                                                    const data = await response.json();
+                                                                                                                                                                                                                                                                return res.status(200).json(data);
+                                                                                                                                                                                                                                                                        }
 
-    // For POST requests (SMMWiz)
-    if (req.method === 'POST' && req.body) {
-      fetchOptions.body = JSON.stringify(req.body);
-    }
+                                                                                                                                                                                                                                                                                res.status(400).json({ error: "Invalid service" });
+                                                                                                                                                                                                                                                                                    } catch (error) {
+                                                                                                                                                                                                                                                                                            res.status(500).json({ error: "Proxy Error", details: error.message });
+                                                                                                                                                                                                                                                                                                }
+                                                                                                                                                                                                                                                                                                }
 
-    const response = await fetch(fetchUrl, fetchOptions);
-    const contentType = response.headers.get('content-type');
-
-    let data;
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      data = await response.text();
-    }
-
-    // Return the same status and data
-    res.status(response.status).send(data);
-
-  } catch (error) {
-    console.error("Proxy Error:", error);
-    res.status(500).json({ 
-      error: "Proxy failed", 
-      message: error.message 
-    });
-  }
 }
