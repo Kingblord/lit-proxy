@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
     // 1. SET CORS HEADERS
     // This allows your hosted site at is-best.net to communicate with this proxy
-    res.setHeader('Access-Control-Allow-Origin', 'https://cloutiva-app.is-best.net');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
