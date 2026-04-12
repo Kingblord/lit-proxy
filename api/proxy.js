@@ -11,7 +11,6 @@ export default async function handler(req, res) {
     const { service, ...otherParams } = req.query;
 
     try {
-
         // ===================== HERO SMS (GET ONLY) =====================
         if (service === 'hero') {
             const HERO_KEY = process.env.HERO_SMS_KEY;
@@ -20,8 +19,9 @@ export default async function handler(req, res) {
                 return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
             }
 
+            // Ensure no empty params are sent to the provider
             const cleanParams = Object.fromEntries(
-                Object.entries(otherParams).filter(([_, v]) => v !== undefined)
+                Object.entries(otherParams).filter(([_, v]) => v !== undefined && v !== "")
             );
 
             const queryParams = new URLSearchParams({
@@ -35,7 +35,15 @@ export default async function handler(req, res) {
 
             const data = await response.text();
 
-            return res.status(200).send(data);
+            // LOGIC FOR TRACKING: Check if the response is JSON (V2 endpoints)
+            // Tracking endpoints like getStatusV2 return JSON objects.
+            try {
+                const jsonData = JSON.parse(data);
+                return res.status(200).json(jsonData);
+            } catch (e) {
+                // If not JSON, send as plain text (Standard for ACCESS_NUMBER, etc.)
+                return res.status(200).send(data);
+            }
         }
 
         // ===================== SMM WIZ (GET + POST SUPPORT) =====================
@@ -48,7 +56,7 @@ export default async function handler(req, res) {
 
             let payload = {};
 
-            // Handle GET requests (your frontend currently uses this)
+            // Handle GET requests
             if (req.method === 'GET') {
                 payload = {
                     ...otherParams,
@@ -58,8 +66,10 @@ export default async function handler(req, res) {
 
             // Handle POST requests
             if (req.method === 'POST') {
+                // Support both parsed body and raw input
+                const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
                 payload = {
-                    ...(req.body || {}),
+                    ...(body || {}),
                     key: SMM_KEY
                 };
             }
@@ -71,7 +81,6 @@ export default async function handler(req, res) {
             });
 
             const data = await response.json();
-
             return res.status(200).json(data);
         }
 
