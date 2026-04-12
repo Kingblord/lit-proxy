@@ -8,11 +8,11 @@ export default async function handler(req, res) {
         return res.status(200).end();
     }
 
-    const { service, ...otherParams } = req.query;
+    const { provider, ...otherParams } = req.query;
 
     try {
         // ===================== HERO SMS (GET ONLY) =====================
-        if (service === 'hero') {
+        if (provider === 'hero') {
             const HERO_KEY = process.env.HERO_SMS_KEY;
 
             if (!HERO_KEY) {
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         }
 
         // ===================== SMM WIZ (GET + POST SUPPORT) =====================
-        if (service === 'smm') {
+        if (provider === 'smm') {
             const SMM_KEY = process.env.SMM_WIZ_KEY;
 
             if (!SMM_KEY) {
