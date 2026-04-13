@@ -10,6 +10,8 @@ export default async function handler(req, res) {
 
     const { provider, ...otherParams } = req.query;
 
+    console.log('🌐 Incoming Proxy Request:', { provider, method: req.method, otherParams, body: req.body });
+
     try {
         // ===================== HERO SMS (GET ONLY) =====================
         if (provider === 'hero') {
@@ -92,9 +94,12 @@ export default async function handler(req, res) {
                 body: method === 'POST' ? new URLSearchParams(payload).toString() : undefined
             };
 
+            console.log('📡 Outgoing SMMWiz Request:', { url, method, payload, fetchOptions });
+
             const response = await fetch(url, fetchOptions);
 
             const data = await response.json();
+            console.log('📨 SMMWiz Response:', data);
             return res.status(200).json(data);
         }
 
