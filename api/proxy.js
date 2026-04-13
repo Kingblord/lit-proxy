@@ -55,16 +55,27 @@ export default async function handler(req, res) {
             }
 
             let payload = {};
+            let method = 'POST';
+            let url = 'https://smmwiz.com/api/v2';
 
-            // Handle GET requests
+            // Handle GET requests (services, status)
             if (req.method === 'GET') {
                 payload = {
                     ...otherParams,
                     key: SMM_KEY
                 };
+                // For GET actions, use GET method and query params
+                if (otherParams.action === 'services' || otherParams.action === 'status') {
+                    method = 'GET';
+                    const query = new URLSearchParams(payload).toString();
+                    url += `?${query}`;
+                } else {
+                    // Fallback to POST for other GET requests
+                    method = 'POST';
+                }
             }
 
-            // Handle POST requests
+            // Handle POST requests (add, refill, cancel, etc.)
             if (req.method === 'POST') {
                 // Support both parsed body and raw input
                 const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -72,13 +83,16 @@ export default async function handler(req, res) {
                     ...(body || {}),
                     key: SMM_KEY
                 };
+                method = 'POST';
             }
 
-            const response = await fetch('https://smmwiz.com/api/v2', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams(payload).toString()
-            });
+            const fetchOptions = {
+                method,
+                headers: method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {},
+                body: method === 'POST' ? new URLSearchParams(payload).toString() : undefined
+            };
+
+            const response = await fetch(url, fetchOptions);
 
             const data = await response.json();
             return res.status(200).json(data);
