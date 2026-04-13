@@ -48,58 +48,31 @@ export default async function handler(req, res) {
             }
         }
 
-        // ===================== SMM WIZ (GET + POST SUPPORT) =====================
-        if (provider === 'smm') {
-            const SMM_KEY = process.env.SMM_WIZ_KEY;
+        // ===================== FOLLOWIZ (POST ONLY) =====================
+        if (provider === 'followiz') {
+            const FOLLOWIZ_KEY = process.env.FOLLOWIZ_KEY;
 
-            if (!SMM_KEY) {
-                return res.status(500).json({ error: "Missing SMM_WIZ_KEY" });
+            if (!FOLLOWIZ_KEY) {
+                return res.status(500).json({ error: "Missing FOLLOWIZ_KEY" });
             }
 
-            let payload = {};
-            let method = 'POST';
-            let url = 'https://smmwiz.com/api/v2';
-
-            // Handle GET requests (services, status)
-            if (req.method === 'GET') {
-                payload = {
-                    ...otherParams,
-                    key: SMM_KEY
-                };
-                // For GET actions, use GET method and query params
-                if (otherParams.action === 'services' || otherParams.action === 'status') {
-                    method = 'GET';
-                    const query = new URLSearchParams(payload).toString();
-                    url += `?${query}`;
-                } else {
-                    // Fallback to POST for other GET requests
-                    method = 'POST';
-                }
-            }
-
-            // Handle POST requests (add, refill, cancel, etc.)
-            if (req.method === 'POST') {
-                // Support both parsed body and raw input
-                const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-                payload = {
-                    ...(body || {}),
-                    key: SMM_KEY
-                };
-                method = 'POST';
-            }
-
-            const fetchOptions = {
-                method,
-                headers: method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {},
-                body: method === 'POST' ? new URLSearchParams(payload).toString() : undefined
+            // Support both parsed body and raw input
+            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            const payload = {
+                ...(body || {}),
+                key: FOLLOWIZ_KEY
             };
 
-            console.log('📡 Outgoing SMMWiz Request:', { url, method, payload, fetchOptions });
+            console.log('📡 Outgoing Followiz Request:', payload);
 
-            const response = await fetch(url, fetchOptions);
+            const response = await fetch('https://followiz.com/api/v2', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams(payload).toString()
+            });
 
             const data = await response.json();
-            console.log('📨 SMMWiz Response:', data);
+            console.log('📨 Followiz Response:', data);
             return res.status(200).json(data);
         }
 
