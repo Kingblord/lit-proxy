@@ -2,7 +2,7 @@ export default async function handler(req, res) {
     // ===================== CORS =====================
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-kora-signature');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-kora-signature, Authorization');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -18,13 +18,10 @@ export default async function handler(req, res) {
     });
 
     try {
-        // ===================== HERO SMS (GET ONLY) =====================
+        // ===================== HERO SMS =====================
         if (provider === 'hero') {
             const HERO_KEY = process.env.HERO_SMS_KEY;
-
-            if (!HERO_KEY) {
-                return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
-            }
+            if (!HERO_KEY) return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
 
             const cleanParams = Object.fromEntries(
                 Object.entries(otherParams).filter(([_, v]) => v !== undefined && v !== "")
@@ -35,10 +32,7 @@ export default async function handler(req, res) {
                 ...cleanParams
             }).toString();
 
-            const response = await fetch(
-                `https://hero-sms.com/stubs/handler_api.php?${queryParams}`
-            );
-
+            const response = await fetch(`https://hero-sms.com/stubs/handler_api.php?${queryParams}`);
             const data = await response.text();
 
             try {
@@ -49,21 +43,13 @@ export default async function handler(req, res) {
             }
         }
 
-        // ===================== FOLLOWIZ (POST ONLY) =====================
+        // ===================== FOLLOWIZ =====================
         if (provider === 'followiz') {
             const FOLLOWIZ_KEY = process.env.FOLLOWIZ_KEY;
-
-            if (!FOLLOWIZ_KEY) {
-                return res.status(500).json({ error: "Missing FOLLOWIZ_KEY" });
-            }
+            if (!FOLLOWIZ_KEY) return res.status(500).json({ error: "Missing FOLLOWIZ_KEY" });
 
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-            const payload = {
-                ...(body || {}),
-                key: FOLLOWIZ_KEY
-            };
-
-            console.log('📡 Outgoing Followiz Request:', payload);
+            const payload = { ...(body || {}), key: FOLLOWIZ_KEY };
 
             const response = await fetch('https://followiz.com/api/v2', {
                 method: 'POST',
@@ -72,21 +58,21 @@ export default async function handler(req, res) {
             });
 
             const data = await response.json();
-            console.log('📨 Followiz Response:', data);
             return res.status(200).json(data);
         }
 
-        // ===================== KORA PAY =====================
+        // ===================== KORA PAY - FULL SUPPORT =====================
         if (provider === 'kora') {
             const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
+            const KORA_PUBLIC_KEY = process.env.KORA_PUBLIC_KEY;
 
             if (!KORA_SECRET_KEY) {
-                console.error("Missing KORA_SECRET_KEY in environment variables");
-                return res.status(500).json({ error: "Server configuration error - Missing KORA_SECRET_KEY" });
+                console.error("Missing KORA_SECRET_KEY");
+                return res.status(500).json({ error: "Server configuration error - Missing Secret Key" });
             }
 
             // ===================== WEBHOOK (POST from Kora) =====================
-            if (req.method === 'POST' && (req.headers['x-kora-signature'] || req.headers['x-korapay-signature'])) {
+            if (req.method === 'POST' && !req.query.action) {
                 const signature = req.headers['x-kora-signature'] || req.headers['x-korapay-signature'];
                 const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
@@ -97,7 +83,7 @@ export default async function handler(req, res) {
                 });
 
                 // Verify signature
-                if (signature) {
+                if (signature && KORA_SECRET_KEY) {
                     const crypto = await import('crypto');
                     const expectedSignature = crypto
                         .createHmac('sha256', KORA_SECRET_KEY)
@@ -105,7 +91,7 @@ export default async function handler(req, res) {
                         .digest('hex');
 
                     if (signature !== expectedSignature) {
-                        console.warn("⚠️ Kora Webhook Signature Mismatch!");
+                        console.warn("⚠️ Invalid webhook signature");
                         return res.status(401).json({ error: "Invalid signature" });
                     }
                 }
@@ -116,60 +102,51 @@ export default async function handler(req, res) {
                         amount: body.data.amount,
                         customer: body.data.customer
                     });
-                    // TODO: Credit user wallet here later
+                    // TODO: Credit user wallet here using reference
                 }
 
                 return res.status(200).json({ status: "success", message: "Webhook received" });
             }
 
-            // ===================== INITIALIZE PAYMENT (POST from Frontend) =====================
-            if (req.method === 'POST') {
-                const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            // ===================== INITIALIZE PAYMENT (From Frontend) =====================
+            if (req.method === 'POST' && req.query.action === 'initialize') {
+                if (!KORA_PUBLIC_KEY) {
+                    return res.status(500).json({ error: "Missing Public Key" });
+                }
+
+                const { amount, reference, customer, redirect_url } = req.body;
+
+                if (!amount || !reference) {
+                    return res.status(400).json({ error: "Amount and reference are required" });
+                }
 
                 const payload = {
-                    amount: body.amount,
-                    reference: body.reference,
-                    currency: body.currency || "NGN",
-                    customer: body.customer || {
-                        email: body.email || "user@cloutivaapp.shop",
-                        name: body.name || "Cloutiva User"
+                    key: KORA_PUBLIC_KEY,           // Public key for checkout
+                    reference: reference,
+                    amount: parseFloat(amount),
+                    currency: "NGN",
+                    customer: customer || {
+                        name: "Cloutiva User",
+                        email: "user@cloutivaapp.shop"
                     },
-                    redirect_url: body.redirect_url || "https://cloutivaapp.shop/dashboard.html",
-                    narration: body.narration || "Wallet Top Up"
+                    notification_url: "https://lit-proxy.vercel.app/api/proxy?provider=kora", // Your webhook
+                    redirect_url: redirect_url || window.location.origin + "/dashboard.html"
                 };
 
-                console.log('🚀 Initializing Kora Payment:', { reference: payload.reference, amount: payload.amount });
-
-                const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${KORA_SECRET_KEY}`
-                    },
-                    body: JSON.stringify(payload)
+                // Using client-side initialize style via proxy
+                return res.status(200).json({
+                    status: true,
+                    message: "Payment initialized",
+                    data: {
+                        checkout_url: null, // Will be handled by Korapay JS on frontend
+                        reference: reference
+                    }
                 });
-
-                const data = await response.json();
-
-                console.log('📨 Kora Initialize Response:', data);
-
-                if (data.status === true || data.status === 'success') {
-                    return res.status(200).json(data);
-                } else {
-                    return res.status(400).json({
-                        error: "Kora initialization failed",
-                        details: data.message || data
-                    });
-                }
             }
 
-            // Fallback for GET
-            return res.status(200).json({ 
-                message: "Kora proxy is active. Use POST to initialize payment or webhook." 
-            });
+            return res.status(400).json({ error: "Invalid Kora action" });
         }
 
-        // ===================== INVALID SERVICE =====================
         return res.status(400).json({ error: "Invalid service requested" });
 
     } catch (error) {
