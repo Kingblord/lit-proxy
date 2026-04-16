@@ -2,7 +2,7 @@ export default async function handler(req, res) {
     // ===================== CORS =====================
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-kora-signature');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -10,7 +10,12 @@ export default async function handler(req, res) {
 
     const { provider, ...otherParams } = req.query;
 
-    console.log('🌐 Incoming Proxy Request:', { provider, method: req.method, otherParams, body: req.body });
+    console.log('🌐 Incoming Proxy Request:', { 
+        provider, 
+        method: req.method, 
+        otherParams, 
+        body: req.body 
+    });
 
     try {
         // ===================== HERO SMS (GET ONLY) =====================
@@ -21,7 +26,6 @@ export default async function handler(req, res) {
                 return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
             }
 
-            // Ensure no empty params are sent to the provider
             const cleanParams = Object.fromEntries(
                 Object.entries(otherParams).filter(([_, v]) => v !== undefined && v !== "")
             );
@@ -37,13 +41,10 @@ export default async function handler(req, res) {
 
             const data = await response.text();
 
-            // LOGIC FOR TRACKING: Check if the response is JSON (V2 endpoints)
-            // Tracking endpoints like getStatusV2 return JSON objects.
             try {
                 const jsonData = JSON.parse(data);
                 return res.status(200).json(jsonData);
             } catch (e) {
-                // If not JSON, send as plain text (Standard for ACCESS_NUMBER, etc.)
                 return res.status(200).send(data);
             }
         }
@@ -56,7 +57,6 @@ export default async function handler(req, res) {
                 return res.status(500).json({ error: "Missing FOLLOWIZ_KEY" });
             }
 
-            // Support both parsed body and raw input
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
             const payload = {
                 ...(body || {}),
@@ -74,6 +74,65 @@ export default async function handler(req, res) {
             const data = await response.json();
             console.log('📨 Followiz Response:', data);
             return res.status(200).json(data);
+        }
+
+        // ===================== KORA PAY (NEW - Added) =====================
+        if (provider === 'kora') {
+            const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
+
+            if (!KORA_SECRET_KEY) {
+                console.error("Missing KORA_SECRET_KEY in environment variables");
+                return res.status(500).json({ error: "Server configuration error" });
+            }
+
+            // Handle Webhook from Kora
+            if (req.method === 'POST') {
+                const signature = req.headers['x-kora-signature'] || req.headers['x-korapay-signature'];
+                const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+                console.log('🪝 Kora Webhook Received:', { 
+                    event: body.event, 
+                    reference: body.data?.reference,
+                    status: body.data?.status 
+                });
+
+                // Optional: Verify webhook signature (Recommended for security)
+                if (signature) {
+                    // Kora uses HMAC SHA256 with secret key
+                    const crypto = await import('crypto');
+                    const expectedSignature = crypto
+                        .createHmac('sha256', KORA_SECRET_KEY)
+                        .update(JSON.stringify(body))
+                        .digest('hex');
+
+                    if (signature !== expectedSignature) {
+                        console.warn("⚠️ Kora Webhook Signature Mismatch!");
+                        return res.status(401).json({ error: "Invalid signature" });
+                    }
+                }
+
+                // Here you can add logic to credit user wallet, update Firebase, etc.
+                // For now, we just log and acknowledge
+                if (body.event === 'charge.success' && body.data?.status === 'success') {
+                    console.log('✅ Successful Kora Payment!', {
+                        reference: body.data.reference,
+                        amount: body.data.amount,
+                        customer: body.data.customer
+                    });
+                    
+                    // TODO: You can call your Firebase function or internal logic here to credit the user
+                }
+
+                // Always return 200 to Kora so it stops retrying
+                return res.status(200).json({ status: "success", message: "Webhook received" });
+            }
+
+            // Optional: Support initiating payment (if needed in future)
+            else if (req.method === 'GET') {
+                return res.status(200).json({ 
+                    message: "Kora proxy is active. Use POST for webhooks." 
+                });
+            }
         }
 
         // ===================== INVALID SERVICE =====================
