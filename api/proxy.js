@@ -76,17 +76,17 @@ export default async function handler(req, res) {
             return res.status(200).json(data);
         }
 
-        // ===================== KORA PAY (NEW - Added) =====================
+        // ===================== KORA PAY =====================
         if (provider === 'kora') {
             const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
 
             if (!KORA_SECRET_KEY) {
                 console.error("Missing KORA_SECRET_KEY in environment variables");
-                return res.status(500).json({ error: "Server configuration error" });
+                return res.status(500).json({ error: "Server configuration error - Missing KORA_SECRET_KEY" });
             }
 
-            // Handle Webhook from Kora
-            if (req.method === 'POST') {
+            // ===================== WEBHOOK (POST from Kora) =====================
+            if (req.method === 'POST' && (req.headers['x-kora-signature'] || req.headers['x-korapay-signature'])) {
                 const signature = req.headers['x-kora-signature'] || req.headers['x-korapay-signature'];
                 const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
@@ -96,9 +96,8 @@ export default async function handler(req, res) {
                     status: body.data?.status 
                 });
 
-                // Optional: Verify webhook signature (Recommended for security)
+                // Verify signature
                 if (signature) {
-                    // Kora uses HMAC SHA256 with secret key
                     const crypto = await import('crypto');
                     const expectedSignature = crypto
                         .createHmac('sha256', KORA_SECRET_KEY)
@@ -111,28 +110,63 @@ export default async function handler(req, res) {
                     }
                 }
 
-                // Here you can add logic to credit user wallet, update Firebase, etc.
-                // For now, we just log and acknowledge
                 if (body.event === 'charge.success' && body.data?.status === 'success') {
                     console.log('✅ Successful Kora Payment!', {
                         reference: body.data.reference,
                         amount: body.data.amount,
                         customer: body.data.customer
                     });
-                    
-                    // TODO: You can call your Firebase function or internal logic here to credit the user
+                    // TODO: Credit user wallet here later
                 }
 
-                // Always return 200 to Kora so it stops retrying
                 return res.status(200).json({ status: "success", message: "Webhook received" });
             }
 
-            // Optional: Support initiating payment (if needed in future)
-            else if (req.method === 'GET') {
-                return res.status(200).json({ 
-                    message: "Kora proxy is active. Use POST for webhooks." 
+            // ===================== INITIALIZE PAYMENT (POST from Frontend) =====================
+            if (req.method === 'POST') {
+                const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+                const payload = {
+                    amount: body.amount,
+                    reference: body.reference,
+                    currency: body.currency || "NGN",
+                    customer: body.customer || {
+                        email: body.email || "user@cloutivaapp.shop",
+                        name: body.name || "Cloutiva User"
+                    },
+                    redirect_url: body.redirect_url || "https://cloutivaapp.shop/dashboard.html",
+                    narration: body.narration || "Wallet Top Up"
+                };
+
+                console.log('🚀 Initializing Kora Payment:', { reference: payload.reference, amount: payload.amount });
+
+                const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${KORA_SECRET_KEY}`
+                    },
+                    body: JSON.stringify(payload)
                 });
+
+                const data = await response.json();
+
+                console.log('📨 Kora Initialize Response:', data);
+
+                if (data.status === true || data.status === 'success') {
+                    return res.status(200).json(data);
+                } else {
+                    return res.status(400).json({
+                        error: "Kora initialization failed",
+                        details: data.message || data
+                    });
+                }
             }
+
+            // Fallback for GET
+            return res.status(200).json({ 
+                message: "Kora proxy is active. Use POST to initialize payment or webhook." 
+            });
         }
 
         // ===================== INVALID SERVICE =====================
