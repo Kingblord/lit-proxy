@@ -10,7 +10,7 @@ export default async function handler(req, res) {
 
     const { provider, ...otherParams } = req.query;
 
-    console.log('🌐 Incoming Proxy Request:', { provider, method: req.method, otherParams, body: req.body });
+    console.log('🌐 Incoming Proxy Request:', { provider, endpoint, method: req.method, otherParams, body: req.body });
 
     try {
         // ===================== HERO SMS (GET ONLY) =====================
@@ -74,6 +74,43 @@ export default async function handler(req, res) {
             const data = await response.json();
             console.log('📨 Followiz Response:', data);
             return res.status(200).json(data);
+        }
+
+        // ===================== KORAPAY =====================
+        if (provider === 'korapay') {
+            const KORAPAY_KEY = process.env.KORAPAY_KEY;
+
+            if (!KORAPAY_KEY) {
+                return res.status(500).json({ error: "Missing KORAPAY_KEY" });
+            }
+
+            if (!endpoint) {
+                return res.status(400).json({ error: "Missing KORAPAY endpoint" });
+            }
+
+            const cleanParams = Object.fromEntries(
+                Object.entries(otherParams).filter(([_, v]) => v !== undefined && v !== "")
+            );
+
+            const queryString = new URLSearchParams(cleanParams).toString();
+            const url = `https://api.korapay.com/merchant/${endpoint}${queryString ? `?${queryString}` : ''}`;
+
+            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+            console.log('📡 Outgoing Korapay Request:', { url, body });
+
+            const response = await fetch(url, {
+                method: req.method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${KORAPAY_KEY}`
+                },
+                body: req.method === 'POST' ? JSON.stringify(body || {}) : undefined
+            });
+
+            const data = await response.json();
+            console.log('📨 Korapay Response:', data);
+            return res.status(response.status).json(data);
         }
 
         // ===================== INVALID SERVICE =====================
