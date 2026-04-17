@@ -1,111 +1,60 @@
-import admin from "firebase-admin";
-
-if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: "cloutiva-app",
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-        }),
-    });
-}
-
-const db = admin.firestore();
-
-
 export default async function handler(req, res) {
-
-    // ===================== CORS =====================
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // 1. SET CORS HEADERS
+    // This allows your hosted site at is-best.net to communicate with this proxy
+    res.setHeader('Access-Control-Allow-Origin', 'https://cloutiva-app.is-best.net');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-kora-signature, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+    // Handle the browser "Preflight" check
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
-    const { provider, action } = req.query;
-    const body = req.body || {};
-
-    console.log('🌐 Proxy Request:', { provider, action, method: req.method });
+    // Extract the service and all other query parameters
+    const { service, ...otherParams } = req.query;
 
     try {
-
-        // ===================== HERO SMS (UNCHANGED SAFE) =====================
-        if (provider === 'hero') {
+        // ===================== HERO SMS (GET) =====================
+        if (service === 'hero') {
             const HERO_KEY = process.env.HERO_SMS_KEY;
-            if (!HERO_KEY) return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
-
-            const cleanParams = Object.fromEntries(
-                Object.entries(req.query).filter(([k, v]) =>
-                    !['provider'].includes(k) && v
-                )
-            );
-
-            const queryParams = new URLSearchParams({
+            
+            // Build the query string using otherParams (excluding 'service')
+            const queryParams = new URLSearchParams({ 
                 api_key: HERO_KEY,
-                ...cleanParams
+                ...otherParams 
             }).toString();
 
             const response = await fetch(`https://hero-sms.com/stubs/handler_api.php?${queryParams}`);
             const data = await response.text();
-
-            try {
-                return res.status(200).json(JSON.parse(data));
-            } catch {
-                return res.status(200).send(data);
-            }
+            
+            return res.status(200).send(data);
         }
 
-        // ===================== FOLLOWIZ (UNCHANGED SAFE) =====================
-        if (provider === 'followiz') {
-            const FOLLOWIZ_KEY = process.env.FOLLOWIZ_KEY;
-            if (!FOLLOWIZ_KEY) return res.status(500).json({ error: "Missing FOLLOWIZ_KEY" });
-
-            const payload = { ...(body || {}), key: FOLLOWIZ_KEY };
-
-            const response = await fetch('https://followiz.com/api/v2', {
+        // ===================== SMM WIZ (POST) =====================
+        if (service === 'smm') {
+            const SMM_KEY = process.env.SMM_WIZ_KEY;
+            
+            const response = await fetch('https://smmwiz.com/api/v2', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams(payload).toString()
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    ...req.body, 
+                    key: SMM_KEY 
+                })
             });
-
+            
             const data = await response.json();
             return res.status(200).json(data);
         }
 
-        // ===================== KORA PAY (PRODUCTION FIXED) =====================
-        if (provider === 'kora') {
+        // If neither service matches
+        res.status(400).json({ error: "Invalid service requested" });
 
-            const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
-
-            if (!KORA_SECRET_KEY) {
-                return res.status(500).json({ error: "Missing KORA_SECRET_KEY" });
-            }
-
-            // ===================== WEBHOOK =====================
-            if (req.method === 'POST' && !action) {
-
-                console.log('🪝 Kora Webhook:', body);
-
-                if (body.event === 'charge.success' && body.data?.status === 'success') {
-
-                    const reference = body.data.reference;
-                    const amount = Number(body.data.amount || 0);
-
-                    // SAFE parsing of user
-                    const userUid = reference?.split("_")[2];
-
-                    if (!userUid) {
-                        return res.status(400).json({ error: "Invalid reference format" });
-                    }
-
-                    try {
-                        // ================= FIREBASE LOG =================
-                        const txRef = db.collection("transactions").doc(reference);
-
-                        await txRef.set({
-                            userUid,
+    } catch (error) {
+        console.error("Proxy Error:", error);
+        res.status(500).json({ error: "Proxy Error", details: error.message });
+    }
+}
                             reference,
                             amount,
                             currency: "NGN",
