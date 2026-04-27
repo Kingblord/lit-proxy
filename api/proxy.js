@@ -61,57 +61,47 @@ export default async function handler(req, res) {
             return res.status(200).json(data);
         }
 
-        // ===================== KORAPAY =====================
-        if (provider === 'korapay') {
-            const KORAPAY_SECRET = process.env.KORAPAY_KEY;
-            const KORAPAY_PUBLIC = process.env.KORAPAY_PUBLIC_KEY;
+        // ===================== KORAPAY CHECKOUT =====================
+        if (provider === 'korapay-checkout') {
+            const { action, ...params } = otherParams;
 
-            const { endpoint, ...params } = otherParams;
-
-            if (!endpoint) {
-                console.error('❌ Missing endpoint');
-                return res.status(400).json({ error: "Missing KORAPAY endpoint" });
+            if (!action) {
+                console.error('❌ Missing action');
+                return res.status(400).json({ error: "Missing KORAPAY action" });
             }
 
-            // Determine which key to use based on endpoint
-            let authKey = KORAPAY_SECRET;
-            if (endpoint.includes('initialize') || endpoint.includes('miscellaneous')) {
-                authKey = KORAPAY_PUBLIC;
+            let url = '';
+            let body = {};
+
+            if (action === 'create-payment') {
+                url = 'https://checkout.korapay.com/?type=payment-link';
+                body = params;
+            } else if (action === 'bank-charge') {
+                url = 'https://checkout.korapay.com/bank/charge';
+                body = params;
+            } else {
+                return res.status(400).json({ error: "Invalid action" });
             }
 
-            if (!authKey) {
-                const keyName = authKey === KORAPAY_PUBLIC ? 'KORAPAY_PUBLIC_KEY' : 'KORAPAY_KEY';
-                console.error(`❌ Missing ${keyName} env var`);
-                return res.status(500).json({ error: `Missing ${keyName}` });
-            }
-
-            const cleanParams = Object.fromEntries(
-                Object.entries(params).filter(([_, v]) => v !== undefined && v !== "")
-            );
-
-            const queryString = new URLSearchParams(cleanParams).toString();
-            const url = `https://api.korapay.com/merchant/${endpoint}${queryString ? `?${queryString}` : ''}`;
-
-            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-
-            console.log('📡 Korapay Request:', { 
-                url, 
-                method: req.method, 
-                auth: `Bearer ${authKey.substring(0, 10)}...`,
-                bodyKeys: Object.keys(body || {})
-            });
+            console.log('📡 Korapay Checkout Request:', { url, action });
 
             const response = await fetch(url, {
-                method: req.method,
+                method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authKey}`
+                    'accept': 'application/json',
+                    'accept-language': 'en-US,en;q=0.9',
+                    'content-type': 'application/json',
+                    'priority': 'u=1, i',
+                    'sec-ch-ua': '"Microsoft Edge";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"',
+                    'sec-fetch-dest': 'empty',
+                    'sec-fetch-mode': 'cors',
+                    'sec-fetch-site': 'same-origin'
                 },
-                body: req.method === 'POST' ? JSON.stringify(body) : undefined
+                body: JSON.stringify(body)
             });
 
-            console.log('📨 Korapay Response Status:', response.status);
-            
             const responseText = await response.text();
             let data;
             try {
@@ -120,8 +110,8 @@ export default async function handler(req, res) {
                 console.error('Failed to parse response:', responseText);
                 data = { raw: responseText };
             }
-            
-            console.log('📨 Korapay Response Data:', { status: data.status, message: data.message });
+
+            console.log('📨 Korapay Checkout Response:', { status: response.status, success: data.success });
             return res.status(response.status).json(data);
         }
 
