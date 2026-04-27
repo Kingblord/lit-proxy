@@ -63,7 +63,7 @@ export default async function handler(req, res) {
 
         // ===================== KORAPAY CHECKOUT =====================
         if (provider === 'korapay-checkout') {
-            const { action, ...params } = otherParams;
+            const { action } = otherParams;
 
             if (!action) {
                 console.error('❌ Missing action');
@@ -71,19 +71,21 @@ export default async function handler(req, res) {
             }
 
             let url = '';
-            let body = {};
+            const bodyData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
             if (action === 'create-payment') {
                 url = 'https://checkout.korapay.com/?type=payment-link';
-                body = params;
             } else if (action === 'bank-charge') {
                 url = 'https://checkout.korapay.com/bank/charge';
-                body = params;
             } else {
                 return res.status(400).json({ error: "Invalid action" });
             }
 
-            console.log('📡 Korapay Checkout Request:', { url, action });
+            console.log('📡 Korapay Checkout Request:', { 
+                url, 
+                action,
+                bodyKeys: Object.keys(bodyData || {})
+            });
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -99,7 +101,7 @@ export default async function handler(req, res) {
                     'sec-fetch-mode': 'cors',
                     'sec-fetch-site': 'same-origin'
                 },
-                body: JSON.stringify(body)
+                body: JSON.stringify(bodyData)
             });
 
             const responseText = await response.text();
@@ -111,14 +113,14 @@ export default async function handler(req, res) {
                 data = { raw: responseText };
             }
 
-            console.log('📨 Korapay Checkout Response:', { status: response.status, success: data.success });
+            console.log('📨 Korapay Checkout Response:', { status: response.status, success: data.success, message: data.data?.message });
             return res.status(response.status).json(data);
         }
 
         // ===================== KORA PAY - FULL SUPPORT =====================
         if (provider === 'kora') {
             const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
-            const KORA_PUBLIC_KEY = process.env.KORAPAY_PUBLIC_KEY;
+            const KORA_PUBLIC_KEY = process.env.KORA_PUBLIC_KEY;
 
             if (!KORA_SECRET_KEY) {
                 console.error("Missing KORA_SECRET_KEY");
