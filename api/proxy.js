@@ -66,14 +66,14 @@ export default async function handler(req, res) {
             const KORAPAY_KEY = process.env.KORAPAY_KEY;
 
             if (!KORAPAY_KEY) {
-                console.log('Missing KORAPAY_KEY');
+                console.error('❌ Missing KORAPAY_KEY env var');
                 return res.status(500).json({ error: "Missing KORAPAY_KEY" });
             }
 
             const { endpoint, ...params } = otherParams;
 
             if (!endpoint) {
-                console.log('Missing endpoint');
+                console.error('❌ Missing endpoint');
                 return res.status(400).json({ error: "Missing KORAPAY endpoint" });
             }
 
@@ -85,8 +85,14 @@ export default async function handler(req, res) {
             const url = `https://api.korapay.com/merchant/${endpoint}${queryString ? `?${queryString}` : ''}`;
 
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            const authHeader = `Bearer ${KORAPAY_KEY.substring(0, 10)}...`;
 
-            console.log('📡 Outgoing Korapay Request:', { url, method: req.method, body });
+            console.log('📡 Korapay Request:', { 
+                url, 
+                method: req.method, 
+                auth: authHeader,
+                bodyKeys: Object.keys(body)
+            });
 
             const response = await fetch(url, {
                 method: req.method,
@@ -94,11 +100,21 @@ export default async function handler(req, res) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${KORAPAY_KEY}`
                 },
-                body: req.method === 'POST' ? JSON.stringify(body || {}) : undefined
+                body: req.method === 'POST' ? JSON.stringify(body) : undefined
             });
 
-            const data = await response.json();
-            console.log('📨 Korapay Response:', { status: response.status, data });
+            console.log('📨 Korapay Response Status:', response.status);
+            
+            const responseText = await response.text();
+            let data;
+            try {
+                data = responseText ? JSON.parse(responseText) : {};
+            } catch (e) {
+                console.error('Failed to parse response:', responseText);
+                data = { raw: responseText };
+            }
+            
+            console.log('📨 Korapay Response Data:', data);
             return res.status(response.status).json(data);
         }
 
