@@ -63,18 +63,26 @@ export default async function handler(req, res) {
 
         // ===================== KORAPAY =====================
         if (provider === 'korapay') {
-            const KORAPAY_KEY = process.env.KORAPAY_KEY;
-
-            if (!KORAPAY_KEY) {
-                console.error('❌ Missing KORAPAY_KEY env var');
-                return res.status(500).json({ error: "Missing KORAPAY_KEY" });
-            }
+            const KORAPAY_SECRET = process.env.KORAPAY_KEY;
+            const KORAPAY_PUBLIC = process.env.KORAPAY_PUBLIC_KEY;
 
             const { endpoint, ...params } = otherParams;
 
             if (!endpoint) {
                 console.error('❌ Missing endpoint');
                 return res.status(400).json({ error: "Missing KORAPAY endpoint" });
+            }
+
+            // Determine which key to use based on endpoint
+            let authKey = KORAPAY_SECRET;
+            if (endpoint.includes('initialize') || endpoint.includes('miscellaneous')) {
+                authKey = KORAPAY_PUBLIC;
+            }
+
+            if (!authKey) {
+                const keyName = authKey === KORAPAY_PUBLIC ? 'KORAPAY_PUBLIC_KEY' : 'KORAPAY_KEY';
+                console.error(`❌ Missing ${keyName} env var`);
+                return res.status(500).json({ error: `Missing ${keyName}` });
             }
 
             const cleanParams = Object.fromEntries(
@@ -85,20 +93,19 @@ export default async function handler(req, res) {
             const url = `https://api.korapay.com/merchant/${endpoint}${queryString ? `?${queryString}` : ''}`;
 
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-            const authHeader = `Bearer ${KORAPAY_KEY.substring(0, 10)}...`;
 
             console.log('📡 Korapay Request:', { 
                 url, 
                 method: req.method, 
-                auth: authHeader,
-                bodyKeys: Object.keys(body)
+                auth: `Bearer ${authKey.substring(0, 10)}...`,
+                bodyKeys: Object.keys(body || {})
             });
 
             const response = await fetch(url, {
                 method: req.method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${KORAPAY_KEY}`
+                    'Authorization': `Bearer ${authKey}`
                 },
                 body: req.method === 'POST' ? JSON.stringify(body) : undefined
             });
@@ -114,7 +121,7 @@ export default async function handler(req, res) {
                 data = { raw: responseText };
             }
             
-            console.log('📨 Korapay Response Data:', data);
+            console.log('📨 Korapay Response Data:', { status: data.status, message: data.message });
             return res.status(response.status).json(data);
         }
 
