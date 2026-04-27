@@ -84,7 +84,8 @@ export default async function handler(req, res) {
             console.log('📡 Korapay Checkout Request:', { 
                 url, 
                 action,
-                bodyKeys: Object.keys(bodyData || {})
+                body: bodyData,
+                bodyString: JSON.stringify(bodyData)
             });
 
             const response = await fetch(url, {
@@ -113,14 +114,20 @@ export default async function handler(req, res) {
                 data = { raw: responseText };
             }
 
-            console.log('📨 Korapay Checkout Response:', { status: response.status, success: data.success, message: data.data?.message });
+            console.log('📨 Korapay Checkout Response:', { 
+                status: response.status, 
+                success: data.success, 
+                message: data.message,
+                data: data.data,
+                fullResponse: data
+            });
             return res.status(response.status).json(data);
         }
 
         // ===================== KORA PAY - FULL SUPPORT =====================
         if (provider === 'kora') {
-            const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
-            const KORA_PUBLIC_KEY = process.env.KORA_PUBLIC_KEY;
+            const KORA_SECRET_KEY = process.env.KORAPAY_SECRET_KEY;
+            const KORA_PUBLIC_KEY = process.env.KORAPAY_PUBLIC_KEY;
 
             if (!KORA_SECRET_KEY) {
                 console.error("Missing KORA_SECRET_KEY");
