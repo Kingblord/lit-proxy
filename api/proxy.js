@@ -118,7 +118,7 @@ export default async function handler(req, res) {
         // ===================== KORA PAY - FULL SUPPORT =====================
         if (provider === 'kora') {
             const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
-            const KORA_PUBLIC_KEY = process.env.KORA_PUBLIC_KEY;
+            const KORA_PUBLIC_KEY = process.env.KORAPAY_PUBLIC_KEY;
 
             if (!KORA_SECRET_KEY) {
                 console.error("Missing KORA_SECRET_KEY");
