@@ -61,7 +61,7 @@ export default async function handler(req, res) {
             return res.status(200).json(data);
         }
 
-        // ===================== KORAPAY CHECKOUT =====================
+        // ===================== KORAPAY CHECKOUT (4-STEP FLOW) =====================
         if (provider === 'korapay-checkout') {
             const { action } = otherParams;
 
@@ -73,19 +73,20 @@ export default async function handler(req, res) {
             let url = '';
             const bodyData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
-            if (action === 'create-payment') {
+            // Route based on action
+            if (action === 'validate-link') {
+                url = 'https://checkout.korapay.com/validate-link';
+            } else if (action === 'create-payment') {
                 url = 'https://checkout.korapay.com/?type=payment-link';
             } else if (action === 'bank-charge') {
                 url = 'https://checkout.korapay.com/bank/charge';
             } else {
-                return res.status(400).json({ error: "Invalid action" });
+                return res.status(400).json({ error: "Invalid action. Must be: validate-link, create-payment, or bank-charge" });
             }
 
-            console.log('📡 Korapay Checkout Request:', { 
+            console.log(`📡 [${action.toUpperCase()}] Korapay Checkout Request:`, { 
                 url, 
-                action,
-                body: bodyData,
-                bodyString: JSON.stringify(bodyData)
+                body: bodyData
             });
 
             const response = await fetch(url, {
@@ -110,17 +111,16 @@ export default async function handler(req, res) {
             try {
                 data = responseText ? JSON.parse(responseText) : {};
             } catch (e) {
-                console.error('Failed to parse response:', responseText);
+                console.error(`❌ Failed to parse ${action} response:`, responseText);
                 data = { raw: responseText };
             }
 
-            console.log('📨 Korapay Checkout Response:', { 
-                status: response.status, 
+            console.log(`📨 [${action.toUpperCase()}] Korapay Response (${response.status}):`, { 
                 success: data.success, 
-                message: data.message,
-                data: data.data,
-                fullResponse: data
+                message: data.message || data.data?.message,
+                code: data.data?.code
             });
+            
             return res.status(response.status).json(data);
         }
 
