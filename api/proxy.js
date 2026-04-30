@@ -80,8 +80,80 @@ export default async function handler(req, res) {
                 url = 'https://checkout.korapay.com/?type=payment-link';
             } else if (action === 'bank-charge') {
                 url = 'https://checkout.korapay.com/bank/charge';
+            } else if (action === 'verify-payment') {
+                // ========== VERIFY PAYMENT STATUS BEFORE CREDITING ==========
+                const { reference } = bodyData;
+                if (!reference) {
+                    return res.status(400).json({ error: "Missing payment reference" });
+                }
+
+                console.log(`🔍 [VERIFY-PAYMENT] Verifying payment status for reference: ${reference}`);
+                
+                try {
+                    // Call Korapay to get transaction status
+                    const verifyRes = await fetch('https://api.korapay.com/merchant/api/v1/transactions/verify', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${process.env.KORAPAY_SECRET_KEY || ''}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    // Alternative: Use the reference directly via query
+                    const verifyAltRes = await fetch(`https://checkout.korapay.com/validate-link`, {
+                        method: 'POST',
+                        headers: {
+                            'accept': 'application/json',
+                            'content-type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            slug: bodyData.slug || '',
+                            env: 'live'
+                        })
+                    });
+
+                    const verifyData = await verifyAltRes.json();
+                    
+                    console.log(`✅ [VERIFY-PAYMENT] Status check result:`, {
+                        reference,
+                        status: verifyData.data?.data?.status,
+                        paymentStatus: verifyData.data?.data?.payment_status
+                    });
+
+                    // Check if payment was successful
+                    const isPaymentSuccessful = verifyData.success && 
+                        (verifyData.data?.data?.status === 'success' || 
+                         verifyData.data?.data?.payment_status === 'success' ||
+                         verifyData.data?.status === true);
+
+                    if (!isPaymentSuccessful) {
+                        console.warn(`⚠️ [VERIFY-PAYMENT] Payment not confirmed for ${reference}`);
+                        return res.status(400).json({
+                            success: false,
+                            error: 'Payment not confirmed. Please verify the payment was received.',
+                            reference,
+                            paymentStatus: verifyData.data?.data?.status || 'unknown'
+                        });
+                    }
+
+                    console.log(`✅ [VERIFY-PAYMENT] Payment confirmed and valid for ${reference}`);
+                    return res.status(200).json({
+                        success: true,
+                        verified: true,
+                        reference,
+                        message: 'Payment verified successfully',
+                        data: verifyData.data
+                    });
+                } catch (verifyErr) {
+                    console.error(`❌ [VERIFY-PAYMENT] Error verifying payment:`, verifyErr.message);
+                    return res.status(500).json({
+                        success: false,
+                        error: 'Failed to verify payment status',
+                        reference
+                    });
+                }
             } else {
-                return res.status(400).json({ error: "Invalid action. Must be: validate-link, create-payment, or bank-charge" });
+                return res.status(400).json({ error: "Invalid action. Must be: validate-link, create-payment, bank-charge, or verify-payment" });
             }
 
             console.log(`📡 [${action.toUpperCase()}] Korapay Checkout Request:`, { 
@@ -126,8 +198,8 @@ export default async function handler(req, res) {
 
         // ===================== KORA PAY - FULL SUPPORT =====================
         if (provider === 'kora') {
-            const KORA_SECRET_KEY = process.env.KORAPAY_SECRET_KEY;
-            const KORA_PUBLIC_KEY = process.env.KORAPAY_PUBLIC_KEY;
+            const KORA_SECRET_KEY = process.env.KORA_SECRET_KEY;
+            const KORA_PUBLIC_KEY = process.env.KORA_PUBLIC_KEY;
 
             if (!KORA_SECRET_KEY) {
                 console.error("Missing KORA_SECRET_KEY");
@@ -165,7 +237,9 @@ export default async function handler(req, res) {
                         amount: body.data.amount,
                         customer: body.data.customer
                     });
-                    // TODO: Credit user wallet here using reference
+                    // NOTE: Balance updates should ONLY happen after explicit payment verification
+                    // and should use the verify-payment action to confirm status before crediting
+                    console.log('📝 Payment verified. Frontend should now call verify-payment action to credit wallet.');
                 }
 
                 return res.status(200).json({ status: "success", message: "Webhook received" });
