@@ -20,25 +20,89 @@ export default async function handler(req, res) {
     try {
         // ===================== HERO SMS =====================
         if (provider === 'hero') {
+            const { action } = otherParams;
+            
+            console.log('📱 [HERO-SMS] Incoming request:', { action, params: otherParams });
+
+            // ===== SERVICES AVAILABILITY =====
+            if (action === 'services') {
+                const page = otherParams.page || '1';
+                const size = otherParams.size || '25';
+                
+                console.log(`📱 [HERO-SMS] Fetching services availability - Page: ${page}, Size: ${size}`);
+                
+                try {
+                    const apiUrl = `https://hero-sms.com/api/v1/classifiers/services/availability?page=${page}&size=${size}`;
+                    console.log(`🔗 [HERO-SMS] API URL:`, apiUrl);
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'GET',
+                        headers: {
+                            'accept': '*/*',
+                            'accept-language': 'en',
+                            'priority': 'u=1, i',
+                            'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"',
+                            'sec-fetch-dest': 'empty',
+                            'sec-fetch-mode': 'cors',
+                            'sec-fetch-site': 'same-origin'
+                        }
+                    });
+
+                    console.log(`📡 [HERO-SMS] Response Status:`, response.status);
+                    
+                    const data = await response.json();
+                    
+                    console.log(`✅ [HERO-SMS] Services fetched successfully:`, {
+                        count: data.data?.length || 0,
+                        total: data.meta?.total || 0,
+                        page: data.meta?.page || page,
+                        services: data.data?.map(s => ({ service: s.service, name: s.name, cost: s.cost })) || []
+                    });
+                    
+                    return res.status(200).json(data);
+                } catch (err) {
+                    console.error(`❌ [HERO-SMS] Error fetching services:`, err.message);
+                    return res.status(500).json({ 
+                        error: "Failed to fetch services",
+                        details: err.message
+                    });
+                }
+            }
+
+            // ===== LEGACY API HANDLER =====
             const HERO_KEY = process.env.HERO_SMS_KEY;
-            if (!HERO_KEY) return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
+            if (!HERO_KEY) {
+                console.error('❌ [HERO-SMS] Missing HERO_SMS_KEY');
+                return res.status(500).json({ error: "Missing HERO_SMS_KEY" });
+            }
 
             const cleanParams = Object.fromEntries(
                 Object.entries(otherParams).filter(([_, v]) => v !== undefined && v !== "")
             );
+
+            console.log(`📱 [HERO-SMS] Using legacy endpoint with params:`, cleanParams);
 
             const queryParams = new URLSearchParams({
                 api_key: HERO_KEY,
                 ...cleanParams
             }).toString();
 
-            const response = await fetch(`https://hero-sms.com/stubs/handler_api.php?${queryParams}`);
+            const apiUrl = `https://hero-sms.com/stubs/handler_api.php?${queryParams}`;
+            console.log(`🔗 [HERO-SMS] Legacy API URL:`, apiUrl);
+            
+            const response = await fetch(apiUrl);
             const data = await response.text();
+
+            console.log(`📡 [HERO-SMS] Legacy Response (${response.status}):`, data.substring(0, 200));
 
             try {
                 const jsonData = JSON.parse(data);
+                console.log(`✅ [HERO-SMS] Parsed JSON response:`, jsonData);
                 return res.status(200).json(jsonData);
             } catch (e) {
+                console.warn(`⚠️ [HERO-SMS] Failed to parse JSON, returning raw:`, data.substring(0, 200));
                 return res.status(200).send(data);
             }
         }
